@@ -39,10 +39,13 @@ final readonly class S3ObjectStorage implements ObjectStorage
         return new StoredObject((int) $r['ContentLength'], $metadata);
     }
 
-    public function download(StorageLocation $object, string $localPath): void
+    public function download(StorageLocation $object, string $localPath): int
     {
         try {
             $this->client->getObject(['Bucket' => $object->bucket, 'Key' => $object->key, 'SaveAs' => $localPath]);
+            clearstatcache(true, $localPath);
+
+            return (int) filesize($localPath);
         } catch (AwsException $e) {
             if (is_file($localPath)) {
                 unlink($localPath);

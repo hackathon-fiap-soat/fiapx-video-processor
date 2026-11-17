@@ -6,7 +6,9 @@ namespace App\Application\Processing\UseCases;
 
 use App\Application\Processing\DTOs\ProcessOutcome;
 use App\Application\Processing\DTOs\ProcessVideoCommand;
+use App\Application\Processing\DTOs\VideoProcessedMetrics;
 use App\Application\Processing\Ports\Heartbeat;
+use App\Application\Processing\Ports\ProcessingTelemetry;
 use App\Application\Processing\Ports\Workspace;
 use App\Application\Processing\ProcessorSettings;
 use App\Domain\Processing\Entities\ProcessingJob;
@@ -26,6 +28,9 @@ use App\Domain\Shared\Interfaces\Clock;
  * Idempotente: se o zip já existe (mensagem repetida), responde VideoProcessed sem reprocessar. As falhas
  * sobem como exceção (ProcessingFailed definitiva, TransientFailure transitória) para o consumidor decidir
  * entre apagar a mensagem e deixá-la voltar para a fila; ele usa fail() para responder VideoProcessingFailed.
+ *
+ * Antes de cada VideoProcessed, registra a telemetria do processamento (evento VideoProcessed do New Relic,
+ * fiapx-docs/07-observabilidade): duração de download + ffmpeg + zip + upload e só do ffmpeg.
  */
 final readonly class ProcessVideoUseCase
 {
@@ -42,6 +47,7 @@ final readonly class ProcessVideoUseCase
         private Workspace $workspace,
         private Clock $clock,
         private ProcessorSettings $settings,
+        private ProcessingTelemetry $telemetry,
     ) {}
 
     /**
@@ -57,6 +63,7 @@ final readonly class ProcessVideoUseCase
         if ($existing !== null && $frameCount !== null && $frameCount > 0 && $existing->sizeBytes > 0) {
             $done = ProcessingJob::alreadyProcessed($command->saga, $command->video, $command->outputPrefix, $command->fps,
                 $frameCount, $existing->sizeBytes, $existing->intMetadata(self::META_DURATION_MS) ?? 0, $this->clock->now());
+            $this->telemetry->videoProcessed($this->metrics($command, $done, ffmpegMs: 0, videoSizeBytes: 0, reused: true));
             $this->replies->videoProcessed($done);
 
             return ProcessOutcome::AlreadyProcessed;
@@ -66,10 +73,13 @@ final readonly class ProcessVideoUseCase
         $dir = $this->workspace->create($command->saga->videoId);
         try {
             $video = "{$dir}/source.{$command->video->extension()}";
-            $this->storage->download($command->video, $video);
+            $downloadStartedAt = $this->clock->now();
+            $videoSizeBytes = $this->storage->download($command->video, $video);
             $heartbeat->beat();
 
+            $ffmpegStartedAt = $this->clock->now();
             $frames = $this->extractor->extract($video, "{$dir}/frames", $command->fps, $heartbeat->beat(...));
+            $ffmpegMs = self::millisecondsBetween($ffmpegStartedAt, $this->clock->now());
             $zip = "{$dir}/".ProcessingJob::ARCHIVE_NAME;
             $size = $this->archiver->archive($frames, $zip);
             $heartbeat->beat();
@@ -78,13 +88,38 @@ final readonly class ProcessVideoUseCase
                 self::META_FRAME_COUNT => (string) $frames->count(),
                 self::META_DURATION_MS => (string) $job->elapsedMs($this->clock->now()),
             ]);
-            $job->finish($frames, $size, $this->clock->now());
+            $uploadedAt = $this->clock->now();
+            $job->finish($frames, $size, $uploadedAt);
+            $this->telemetry->videoProcessed($this->metrics($command, $job, $ffmpegMs, $videoSizeBytes, reused: false,
+                durationMs: self::millisecondsBetween($downloadStartedAt, $uploadedAt)));
             $this->replies->videoProcessed($job);
         } finally {
             $this->workspace->remove($dir);
         }
 
         return ProcessOutcome::Processed;
+    }
+
+    private function metrics(ProcessVideoCommand $command, ProcessingJob $job, int $ffmpegMs, int $videoSizeBytes, bool $reused,
+        ?int $durationMs = null): VideoProcessedMetrics
+    {
+        return new VideoProcessedMetrics(
+            videoId: $command->saga->videoId,
+            sagaId: $command->saga->sagaId,
+            correlationId: $command->saga->correlationId,
+            workerId: $this->settings->workerId,
+            durationMs: $durationMs ?? $job->durationMs() ?? 0,
+            ffmpegMs: $ffmpegMs,
+            frameCount: $job->frameCount() ?? 0,
+            videoSizeBytes: $videoSizeBytes,
+            zipSizeBytes: $job->zipSizeBytes() ?? 0,
+            reused: $reused,
+        );
+    }
+
+    private static function millisecondsBetween(\DateTimeImmutable $from, \DateTimeImmutable $to): int
+    {
+        return max(0, (int) round(((float) $to->format('U.u') - (float) $from->format('U.u')) * 1000));
     }
 
     /** Responde VideoProcessingFailed (falha definitiva, ou transitória na última tentativa). */

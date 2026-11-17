@@ -73,7 +73,7 @@ final class ConsumeCommandsCommandTest extends TestCase
         $this->queue->push((string) json_encode(Fixtures::processVideo()));
         $this->queue->push((string) json_encode(Fixtures::cleanupArtifacts()));
         $this->storage->expects('head')->andReturnNull();
-        $this->storage->expects('download');
+        $this->storage->expects('download')->andReturn(1024);
         $this->extractor->expects('extract')->andReturn(new FrameSet('/x', ['/x/frame_0001.png']));
         $this->storage->expects('upload');
         $this->storage->expects('deletePrefix')->andReturn(1);
@@ -92,7 +92,7 @@ final class ConsumeCommandsCommandTest extends TestCase
     {
         $this->queue->push((string) json_encode(Fixtures::processVideo()));
         $this->storage->expects('head')->andReturnNull();
-        $this->storage->expects('download');
+        $this->storage->expects('download')->andReturn(1024);
         $this->extractor->expects('extract')->andThrow(ProcessingFailed::because(ErrorCode::FfmpegError, 'Invalid data'));
         $this->replies->expects('processingStarted');
         $this->replies->expects('videoProcessingFailed')->withArgs(fn ($job, int $attempt) => $job->error()->code === ErrorCode::FfmpegError && $attempt === 1);

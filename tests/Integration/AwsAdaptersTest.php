@@ -58,7 +58,7 @@ final class AwsAdaptersTest extends TestCase
         self::assertSame(2048, $stored?->sizeBytes);
         self::assertSame(3, $stored->intMetadata('frame-count'));
 
-        $storage->download($zip, $this->dir.'/baixado.zip');
+        self::assertSame(2048, $storage->download($zip, $this->dir.'/baixado.zip'));
         self::assertSame(str_repeat('z', 2048), file_get_contents($this->dir.'/baixado.zip'));
 
         self::assertSame(2, $storage->deletePrefix(new StorageLocation($bucket, 'results/'.Fixtures::VIDEO.'/')));

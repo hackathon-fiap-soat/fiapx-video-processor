@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Application\Processing\Ports\ProcessingTelemetry;
 use App\Application\Processing\Ports\Workspace;
 use App\Application\Processing\ProcessorSettings;
 use App\Domain\Processing\Interfaces\FrameArchiver;
@@ -18,6 +19,7 @@ use App\Infrastructure\Media\ZipFrameArchiver;
 use App\Infrastructure\Messaging\CommandQueue;
 use App\Infrastructure\Messaging\SqsCommandConsumer;
 use App\Infrastructure\Messaging\SqsReplyPublisher;
+use App\Infrastructure\Observability\NewRelicProcessingTelemetry;
 use App\Infrastructure\Storage\LocalWorkspace;
 use App\Infrastructure\Storage\S3ObjectStorage;
 use App\Infrastructure\Support\AwsClients;
@@ -40,6 +42,7 @@ final class RepositoryServiceProvider extends ServiceProvider
         FrameArchiver::class => ZipFrameArchiver::class,
         CommandQueue::class => SqsCommandConsumer::class,
         Workspace::class => LocalWorkspace::class,
+        ProcessingTelemetry::class => NewRelicProcessingTelemetry::class,
         Clock::class => SystemClock::class,
         IdGenerator::class => RamseyUuidV7Generator::class,
     ];

@@ -25,10 +25,11 @@ com as dependências apontando para dentro:
 app/Domain/Processing/     ProcessingJob (PROCESSING → COMPLETED | FAILED), VOs (FramesPerSecond, StorageLocation,
                            FrameSet, ProcessingError, SagaReference...), exceções ProcessingFailed (definitiva) e
                            TransientFailure, interfaces FrameExtractor, FrameArchiver, ObjectStorage e ReplyPublisher
-app/Application/           ProcessVideoUseCase, CleanupArtifactsUseCase, portas Heartbeat e Workspace,
+app/Application/           ProcessVideoUseCase, CleanupArtifactsUseCase, portas Heartbeat, Workspace e ProcessingTelemetry,
                            IncomingCommand (consumidor tolerante) e MessageFactory (envelope dos contratos v1)
 app/Infrastructure/        FfmpegFrameExtractor, ZipFrameArchiver, S3ObjectStorage, LocalWorkspace,
-                           SqsCommandConsumer, SqsReplyPublisher, VisibilityHeartbeat, ParameterResolver (env → SSM)
+                           SqsCommandConsumer, SqsReplyPublisher, VisibilityHeartbeat, ParameterResolver (env → SSM),
+                           NewRelicProcessingTelemetry (evento VideoProcessed)
 app/Presentation/Console/  processor:consume (o laço do worker) e processor:alive (liveness)
 app/Providers/RepositoryServiceProvider.php   liga cada interface à implementação
 ```
@@ -59,6 +60,14 @@ DeleteMessage só depois de subir o zip e publicar a resposta; /work limpo no fi
 Respostas na `saga-replies.fifo` com `MessageGroupId = saga_id` e `MessageDeduplicationId = message_id`;
 `saga_id`, `video_id` e `correlation_id` são sempre os do comando. Logs em JSON no stderr com `correlation_id`,
 `saga_id`, `video_id` e `message_id`; com o agente New Relic, cada mensagem vira uma transação de background.
+
+Antes de cada resposta `VideoProcessed`, o worker registra o evento customizado `VideoProcessed` no New Relic
+([observabilidade](https://github.com/hackathon-fiap-soat/fiapx-docs/blob/main/07-observabilidade/observabilidade.md)):
+`video_id`, `saga_id`, `correlation_id`, `worker_id` (nome do pod), `duration_ms` (download + ffmpeg + zip +
+upload), `ffmpeg_ms`, `frame_count`, `video_size_bytes`, `zip_size_bytes` e `reused`. Na resposta idempotente
+(`reused = true`), `duration_ms` é o do processamento original (metadado do zip) e `ffmpeg_ms` e
+`video_size_bytes` são 0. Sem o agente (local e testes), nada é enviado. Consulta:
+`SELECT * FROM VideoProcessed WHERE video_id = '<id>' SINCE 1 day ago`.
 
 O zip guarda nos metadados do objeto `frame-count` e `duration-ms`, que a resposta idempotente reaproveita.
 Sem esses metadados, o vídeo é reprocessado.
