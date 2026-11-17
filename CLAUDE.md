@@ -12,9 +12,9 @@ e-mail em caso de erro. Entregáveis: documentação da arquitetura, script do b
 vídeo de até 10 minutos.
 
 Stack escolhida pelo time: AWS + Terraform, EKS + KEDA, Laravel 13 (PHP 8.4.27), Lambdas Node.js 24, Aurora
-MySQL Serverless v2, SQS (Standard, FIFO e DLQ), S3 com POST pré-assinado, SAGA orquestrada com outbox,
+MySQL (provisionado `db.t3.medium`), SQS (Standard, FIFO e DLQ), S3 com POST pré-assinado, SAGA orquestrada com outbox,
 DynamoDB, e-mail por SMTP externo (Brevo, Nodemailer; Mailpit no local), New Relic + CloudWatch, React + Vite
-em S3 static website (API Gateway em outra origem, com CORS).
+em pod nginx no EKS, na mesma origem da API (rota `$default` do API Gateway, sem CORS na API).
 
 O `prod` roda na **AWS Academy Learner Lab** (ADR-019): sem OIDC (credenciais do lab em GitHub Secrets,
 atualizadas a cada sessão de ~4 h), sem roles próprias (tudo usa a `LabRole`), sem SES, CloudFront,
