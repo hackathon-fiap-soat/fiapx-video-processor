@@ -1,0 +1,20 @@
+# Configuração não sensível. Os valores da AWS (filas e região) vêm do overlay, gerados a partir do SSM no
+# deploy. O worker não tem banco nem segredos próprios (NEW_RELIC_LICENSE_KEY vem de um Secret opcional).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fiapx-video-processor-base
+data:
+  APP_NAME: fiapx-video-processor
+  APP_ENV: production
+  APP_DEBUG: "false"
+  LOG_CHANNEL: json
+  LOG_LEVEL: info
+  CACHE_STORE: array
+  FIAPX_WORK_DIR: /work
+  FIAPX_CONSUMER_WAIT_SECONDS: "20"
+  FIAPX_MAX_ATTEMPTS: "3"
+  FIAPX_FFMPEG_TIMEOUT_SECONDS: "1500"
+  FIAPX_HEARTBEAT_INTERVAL_SECONDS: "60"
+  FIAPX_HEARTBEAT_EXTENSION_SECONDS: "300"
+  NEW_RELIC_APP_NAME: fiapx-video-processor
