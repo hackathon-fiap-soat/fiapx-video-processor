@@ -1,4 +1,4 @@
-name: destroy
+name: Destroy · worker do processor do EKS (KEDA)
 
 # Chamado pelo destroy-all do fiapx-infra (ADR-018), antes do video-api (que apaga o namespace fiapx).
 # Remove só os recursos deste worker; o ECR é da infraestrutura.
@@ -9,20 +9,24 @@ permissions:
   contents: read
 
 jobs:
+  # Chamado pelo destroy-all, aparece como "1 · Processor (EKS + KEDA) / Remover".
   destroy:
+    name: Remover
     runs-on: ubuntu-latest
     environment: prod
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - name: Baixar o fiapx-video-processor
+        uses: actions/checkout@v4
         with: { repository: hackathon-fiap-soat/fiapx-video-processor }
-      - id: aws
+      - name: Autenticar na AWS Academy e garantir o bucket do state
+        id: aws
         uses: hackathon-fiap-soat/fiapx-infra/.github/actions/aws-lab@main
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-      - name: Recursos no EKS
+      - name: Apagar o ScaledObject e o Deployment do EKS (se o cluster existir)
         run: |
           if cluster=$(aws ssm get-parameter --name /fiapx/prod/eks/cluster_name --query Parameter.Value --output text 2>/dev/null); then
             aws eks update-kubeconfig --name "$cluster"
