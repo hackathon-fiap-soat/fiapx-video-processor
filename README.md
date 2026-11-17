@@ -180,7 +180,8 @@ O bucket vem em cada comando (`payload.bucket`). O worker não usa banco: `DB_*`
 
 `.github/workflows/ci.yml` em todo PR e push na `main`: testes (com `fiapx-docs` e `fiapx-infra` lado a lado e o
 compose do ambiente local; pint, phpstan e phpunit com cobertura ≥ 80%), build da imagem `linux/amd64` com Trivy
-(falha em CRITICAL) e `kustomize build` + `kubeconform` (Kubernetes 1.33).
+(falha em CRITICAL) e `kustomize build` + `kubeconform` (Kubernetes 1.33). Análise no **SonarCloud** ([organização `hackathon-fiap-soat`](https://sonarcloud.io/organizations/hackathon-fiap-soat/projects)) depois dos testes, com a cobertura e o Quality Gate como check (`sonar-project.properties`, Secret `SONAR_TOKEN`). O `clover.xml` gerado no
+container tem os caminhos ajustados para o runner antes da análise.
 
 ## Deploy
 
