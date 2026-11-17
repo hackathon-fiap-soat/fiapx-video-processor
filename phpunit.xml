@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Suítes: Unit (domínio, casos de uso com Mockery e adaptadores sem rede), Contract (mensagens contra os
+  schemas do fiapx-docs) e Integration (ffmpeg real, S3 e SQS no LocalStack do fiapx-infra/local, e o
+  comando processor:consume de ponta a ponta). Contract e Integration rodam dentro do compose.
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+         failOnRisky="true"
+         failOnWarning="true"
+         displayDetailsOnTestsThatTriggerNotices="true"
+>
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Contract">
+            <directory>tests/Contract</directory>
+        </testsuite>
+        <testsuite name="Integration">
+            <directory>tests/Integration</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>app</directory>
+        </include>
+    </source>
+    <coverage>
+        <report>
+            <text outputFile="php://stdout" showOnlySummary="true"/>
+            <clover outputFile="coverage/clover.xml"/>
+        </report>
+    </coverage>
+    <php>
+        <!-- <server> também: no Docker, o env_file chega em $_SERVER, que o Laravel lê primeiro. -->
+        <env name="APP_ENV" value="testing" force="true"/>
+        <server name="APP_ENV" value="testing" force="true"/>
+        <env name="CACHE_STORE" value="array" force="true"/>
+        <server name="CACHE_STORE" value="array" force="true"/>
+        <env name="LOG_CHANNEL" value="null" force="true"/>
+        <server name="LOG_CHANNEL" value="null" force="true"/>
+        <env name="FIAPX_CONSUMER_WAIT_SECONDS" value="1" force="true"/>
+        <server name="FIAPX_CONSUMER_WAIT_SECONDS" value="1" force="true"/>
+    </php>
+</phpunit>

@@ -42,3 +42,4 @@ Homestead.json
 .phpactor.json
 auth.json
 
+/coverage/
