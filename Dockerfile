@@ -41,6 +41,9 @@ RUN set -eux; \
     tar -xzf /tmp/nr.tgz -C /tmp; \
     NR_INSTALL_SILENT=1 NR_INSTALL_USE_CP_NOT_LN=1 /tmp/newrelic-php5-*/newrelic-install install; \
     rm -rf /tmp/nr.tgz /tmp/newrelic-php5-*; apk del .nr; \
+    # O agente sobe o daemon na primeira requisição/mensagem e ambos gravam log em /var/log/newrelic; o
+    # container roda como 82:82 (não-root), então o diretório precisa ser dele, senão o daemon não sobe.
+    mkdir -p /var/log/newrelic; chown 82:82 /var/log/newrelic; \
     { echo 'extension = "newrelic.so"'; \
       echo 'newrelic.enabled = ${NEW_RELIC_ENABLED}'; \
       echo 'newrelic.license = "${NEW_RELIC_LICENSE_KEY}"'; \
