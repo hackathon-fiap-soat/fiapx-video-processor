@@ -16,12 +16,12 @@ interface ObjectStorage
     public function head(StorageLocation $object): ?StoredObject;
 
     /**
-     * Baixa o objeto em stream para um arquivo local.
+     * Baixa o objeto em stream para um arquivo local. Devolve o tamanho baixado em bytes.
      *
      * @throws ProcessingFailed DOWNLOAD_ERROR se o objeto não existe
      * @throws TransientFailure DOWNLOAD_ERROR em erro de rede ou do S3
      */
-    public function download(StorageLocation $object, string $localPath): void;
+    public function download(StorageLocation $object, string $localPath): int;
 
     /**
      * Sobe um arquivo local (multipart acima do limite do SDK) com metadados.

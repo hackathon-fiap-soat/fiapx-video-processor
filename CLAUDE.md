@@ -100,12 +100,13 @@ ADR-009). Detalhes no `README.md`.
   `StorageLocation`, `FrameSet`, `ProcessingError`, `ErrorCode`, `SagaReference`, `StoredObject`), exceções
   `ProcessingFailed` (definitiva, `\DomainException`) e `TransientFailure`, interfaces `FrameExtractor`,
   `FrameArchiver`, `ObjectStorage` e `ReplyPublisher`. Sem Laravel nem SDK da AWS.
-- `app/Application`: `ProcessVideoUseCase` (+ `fail()`), `CleanupArtifactsUseCase`, portas `Heartbeat` e
-  `Workspace`, `IncomingCommand` (consumidor tolerante) e `MessageFactory` (produtor estrito).
+- `app/Application`: `ProcessVideoUseCase` (+ `fail()`), `CleanupArtifactsUseCase`, portas `Heartbeat`,
+  `Workspace` e `ProcessingTelemetry` (evento `VideoProcessed` do New Relic, DTO `VideoProcessedMetrics`), `IncomingCommand` (consumidor tolerante) e `MessageFactory` (produtor estrito).
 - `app/Infrastructure`: `FfmpegFrameExtractor` (Symfony Process, timeout, heartbeat no laço), `ZipFrameArchiver`
   (`addFile` em lotes, `CM_STORE`), `S3ObjectStorage` (`SaveAs`, `ObjectUploader`), `LocalWorkspace`,
   `SqsCommandConsumer`, `SqsReplyPublisher` (FIFO, grupo = `saga_id`, dedup = `message_id`),
-  `VisibilityHeartbeat`, `ParameterResolver` (env → SSM), `LivenessFile`, `NewRelic`.
+  `VisibilityHeartbeat`, `ParameterResolver` (env → SSM), `LivenessFile`, `NewRelic`,
+  `NewRelicProcessingTelemetry` (`newrelic_record_custom_event`, no-op sem o agente).
 - `php artisan processor:consume`: uma mensagem por vez (long polling 20 s), `DeleteMessage` só depois do zip e
   da resposta. É o único lugar com try/catch: definitiva → `VideoProcessingFailed` + delete; transitória →
   volta para a fila; transitória na última tentativa (`ApproximateReceiveCount ≥ 3`) → `VideoProcessingFailed`

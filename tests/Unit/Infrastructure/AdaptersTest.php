@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Infrastructure;
 
+use App\Application\Processing\DTOs\VideoProcessedMetrics;
 use App\Domain\Processing\ValueObjects\FrameSet;
 use App\Infrastructure\Config\ParameterResolver;
 use App\Infrastructure\Media\ZipFrameArchiver;
 use App\Infrastructure\Messaging\ReceivedCommand;
 use App\Infrastructure\Messaging\VisibilityHeartbeat;
+use App\Infrastructure\Observability\NewRelicProcessingTelemetry;
 use App\Infrastructure\Storage\LocalWorkspace;
 use App\Infrastructure\Support\LivenessFile;
+use App\Infrastructure\Support\NewRelic;
 use Aws\Ssm\SsmClient;
 use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
@@ -146,5 +149,15 @@ final class AdaptersTest extends TestCase
         self::assertSame('http://sqs/replies.fifo', $r->get('b'));
         $this->expectException(\InvalidArgumentException::class);
         $r->get('c');
+    }
+
+    public function test_telemetria_new_relic_sem_o_agente_nao_faz_nada(): void
+    {
+        self::assertFalse(function_exists('newrelic_record_custom_event'), 'os testes rodam sem a extensão do New Relic');
+        self::assertFalse(NewRelic::recordCustomEvent('VideoProcessed', ['video_id' => 'x']));
+
+        (new NewRelicProcessingTelemetry)->videoProcessed(new VideoProcessedMetrics(
+            Fixtures::VIDEO, Fixtures::SAGA, Fixtures::CORRELATION, 'pod-1', 1000, 250, 3, 2048, 512, false));
+        self::assertSame('VideoProcessed', NewRelicProcessingTelemetry::EVENT_VIDEO_PROCESSED);
     }
 }
