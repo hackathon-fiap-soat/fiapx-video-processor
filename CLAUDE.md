@@ -28,7 +28,7 @@ Repositórios na organização [hackathon-fiap-soat](https://github.com/hackatho
 | [`fiapx-infra`](https://github.com/hackathon-fiap-soat/fiapx-infra) | VPC, EKS, Aurora, S3 (vídeos e site), SQS, ECR, API Gateway, SSM, orquestrador de deploy e ambiente local | Terraform + Helm + docker-compose | Etapa 2 ✅ (local), Etapas 7–8 |
 | [`fiapx-auth`](https://github.com/hackathon-fiap-soat/fiapx-auth) | Lambdas de cadastro, login, senha e authorizer JWT | Node.js 24 + Terraform | Etapa 3 ✅ |
 | [`fiapx-video-api`](https://github.com/hackathon-fiap-soat/fiapx-video-api) | API de vídeos, URLs pré-assinadas, orquestrador da SAGA e outbox | PHP 8.4.27 + Laravel 13 no EKS | Etapa 4 ✅ |
-| **fiapx-video-processor** | Worker que extrai os frames com ffmpeg e gera o zip | PHP 8.4.27 + Laravel 13 no EKS + KEDA | Etapa 5 |
+| **fiapx-video-processor** | Worker que extrai os frames com ffmpeg e gera o zip | PHP 8.4.27 + Laravel 13 no EKS + KEDA | Etapa 5 (código ✅, deploy na AWS pendente) |
 | [`fiapx-notification`](https://github.com/hackathon-fiap-soat/fiapx-notification) | E-mails por SMTP (Brevo) com histórico e idempotência no DynamoDB | Node.js 24 + Terraform | Etapa 6 |
 | [`fiapx-web`](https://github.com/hackathon-fiap-soat/fiapx-web) | Front-end: cadastro, login, senha, upload, status e download | React + Vite + TypeScript + Tailwind | Etapa 6.5 |
 
@@ -50,7 +50,8 @@ Decisão nova ou que contrarie uma existente vira ADR no `fiapx-docs`.
 
 Etapas 0 a 4 concluídas. Etapa 7 (infra AWS) aplicada na AWS Academy: notification (fila e tabela), auth e
 video-api implantados e testados com o smoke do `deploy-all`; ambiente derrubado depois do teste.
-Próxima: Etapa 5 (`fiapx-video-processor`), que termina com o deploy testado na AWS.
+Etapa 5 (`fiapx-video-processor`): código, testes, imagem, manifests e CI prontos e o fluxo ponta a ponta local
+validado; falta o deploy na AWS (workflow de deploy e smoke estendido), feito à parte.
 Ordem do plano: 3 auth → 4 video-api → 5 processor → 6 notification → 6.5 web → 7 infra AWS 🛑 → 8 CI/CD →
 9 observabilidade → 10 carga e entregáveis 🛑. O estado atualizado está no painel.
 
@@ -90,21 +91,49 @@ Para um serviço usar o LocalStack: `AWS_ENDPOINT_URL=http://localhost:4566`, `A
 
 ## Este repositório (Etapa 5)
 
-Worker Laravel 13 sem banco, com `ffmpeg` na imagem, escalado pelo KEDA de 1 a 10 pods (spec §8.5, ADR-009):
+Worker Laravel 13 sem banco e sem HTTP, com `ffmpeg` na imagem, escalado pelo KEDA de 1 a 10 pods (spec §8.5,
+ADR-009). Detalhes no `README.md`.
 
-- Um pod processa **uma mensagem por vez**: `ReceiveMessage` (long polling 20 s) → use case →
-  `DeleteMessage` só depois de subir o zip e publicar a resposta.
-- Heartbeat: `ChangeMessageVisibility` a cada 60 s (+300 s) enquanto o ffmpeg roda.
-- Trabalho em `/work` (`emptyDir` com `sizeLimit`), limpo no `finally`; `SIGTERM` termina o vídeo atual.
-- Falha definitiva (vídeo corrompido) → `VideoProcessingFailed` e apaga a mensagem. Falha transitória →
-  não apaga; após 3 tentativas vai para a DLQ e o timeout da saga compensa.
-- Idempotência pela chave `results/{video_id}/frames.zip`. Consome `ProcessVideo` e `CleanupArtifacts`
-  (`processing-commands`); produz `ProcessingStarted`, `VideoProcessed`, `VideoProcessingFailed` e
-  `ArtifactsCleaned` (`saga-replies.fifo`, `MessageGroupId = saga_id`).
-- Mesmas regras de DDD + Clean Architecture do `fiapx-video-api`.
+- `app/Domain/Processing`: `ProcessingJob` (PROCESSING → COMPLETED | FAILED), VOs (`FramesPerSecond`,
+  `StorageLocation`, `FrameSet`, `ProcessingError`, `ErrorCode`, `SagaReference`, `StoredObject`), exceções
+  `ProcessingFailed` (definitiva, `\DomainException`) e `TransientFailure`, interfaces `FrameExtractor`,
+  `FrameArchiver`, `ObjectStorage` e `ReplyPublisher`. Sem Laravel nem SDK da AWS.
+- `app/Application`: `ProcessVideoUseCase` (+ `fail()`), `CleanupArtifactsUseCase`, portas `Heartbeat` e
+  `Workspace`, `IncomingCommand` (consumidor tolerante) e `MessageFactory` (produtor estrito).
+- `app/Infrastructure`: `FfmpegFrameExtractor` (Symfony Process, timeout, heartbeat no laço), `ZipFrameArchiver`
+  (`addFile` em lotes, `CM_STORE`), `S3ObjectStorage` (`SaveAs`, `ObjectUploader`), `LocalWorkspace`,
+  `SqsCommandConsumer`, `SqsReplyPublisher` (FIFO, grupo = `saga_id`, dedup = `message_id`),
+  `VisibilityHeartbeat`, `ParameterResolver` (env → SSM), `LivenessFile`, `NewRelic`.
+- `php artisan processor:consume`: uma mensagem por vez (long polling 20 s), `DeleteMessage` só depois do zip e
+  da resposta. É o único lugar com try/catch: definitiva → `VideoProcessingFailed` + delete; transitória →
+  volta para a fila; transitória na última tentativa (`ApproximateReceiveCount ≥ 3`) → `VideoProcessingFailed`
+  + delete; mal formada → DLQ. `SIGTERM` (`trap`) termina o vídeo atual. `/work` limpo no `finally` e na
+  partida (sobras de container anterior). `processor:alive` é o liveness (arquivo tocado pelo laço e pelo heartbeat).
+- Idempotência: `results/{video_id}/frames.zip` já existente com os metadados `frame-count`/`duration-ms` →
+  `VideoProcessed` sem reprocessar e sem `ProcessingStarted`.
 
-**DoD da Etapa 5:** fluxo ponta a ponta local: upload no LocalStack → saga → processor → `COMPLETED` →
-download do zip com os frames.
+Decisões desta etapa (onde a spec era omissa): falha transitória na última tentativa vira definitiva com
+`DOWNLOAD_ERROR`/`UPLOAD_ERROR` (usa os códigos do contrato e evita esperar o timeout de 30 min da saga); timeout do
+ffmpeg (1500 s) é `FFMPEG_ERROR` definitivo; ffmpeg morto por sinal é transitório; vídeo inexistente é
+`DOWNLOAD_ERROR` definitivo; frames no zip sem recompressão (PNG já é comprimido); o worker rejeita `video_key` e
+prefixos que não sejam do `video_id` do envelope; KEDA com `scaleOnInFlight` (mensagens em processamento contam).
+
+Como trabalhar aqui:
+
+- O PHP roda no container (`docker compose run --rm processor ...`); o compose entra na rede `fiapx_default` do
+  `fiapx-infra/local` e monta `../fiapx-docs` em `/fiapx-docs` para os testes de contrato.
+- `composer lint` (pint + phpstan nível 6), `composer test`, `composer test:coverage` (mínimo 80%). Suítes `Unit`,
+  `Contract` e `Integration` (ffmpeg real + LocalStack com bucket e filas temporários; não purgue filas do
+  ambiente compartilhado).
+- Teste ponta a ponta local: `fiapx-infra/local` + `fiapx-video-api` (`docker compose up -d`, sem o profile
+  `simulador`) + `docker compose up -d` aqui; upload pelo POST pré-assinado e status até `COMPLETED`.
+- Sem `deploy.yml`/`destroy.yml` por enquanto (o deploy na AWS é feito à parte). O ECR já existe no `fiapx-infra`.
+
+**DoD da Etapa 5:** fluxo ponta a ponta local: upload no LocalStack → saga → processor → `COMPLETED` → download
+do zip com os frames. Cumprido em 2026-11-17: 78 testes (94,9% de linhas), vídeo de 3 s → `COMPLETED` com 3 PNGs
+no zip, arquivo corrompido → `FAILED` (`FFMPEG_ERROR`, com `CleanupArtifacts`/`ArtifactsCleaned`), `SIGTERM`
+durante um vídeo de 10 min (heartbeat estendendo a visibility) termina o vídeo antes de parar. Pendente: deploy
+na AWS com o smoke estendido.
 
 ## Skills deste repositório
 
