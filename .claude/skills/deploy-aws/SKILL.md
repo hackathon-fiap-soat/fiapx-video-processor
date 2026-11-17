@@ -57,11 +57,11 @@ aws iam simulate-principal-policy --policy-source-arn arn:aws:iam::<conta>:role/
 | Mudança num serviço | merge do PR: o `deploy.yml` do repositório roda sozinho |
 | Mudança no `fiapx-infra` | merge (o time faz, gera custo): `apply` e depois `deploy-all` automático |
 | Ambiente destruído / subir tudo | `gh workflow run deploy-all.yml -R hackathon-fiap-soat/fiapx-infra -f confirm=deploy-prod` |
-| Retomar de uma etapa | o mesmo, com `-f a_partir_de=<notification\|auth\|video-api\|smoke>` |
+| Retomar de uma etapa | o mesmo, com `-f a_partir_de=<notification\|auth\|video-api\|processor\|web\|smoke>` |
 
 Acompanhe com `gh run watch <id> --exit-status` e, em falha, `gh run view <id> --log-failed`.
 
-**Smoke:** o job `smoke` do `deploy-all` precisa passar. Toda etapa que entrega algo novo acrescenta ao smoke
+**Smoke:** o job `5 · Smoke ponta a ponta` (id `smoke`) do `deploy-all` precisa passar. Toda etapa que entrega algo novo acrescenta ao smoke
 a verificação disso (ex.: upload até `COMPLETED`, item `SENT` no DynamoDB, tela de login).
 
 ## 4. Diagnóstico

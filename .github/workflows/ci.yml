@@ -1,4 +1,4 @@
-name: ci
+name: CI · testes, imagem e manifests do video-processor
 
 # Checks de todo PR (spec §11.2): pint, phpstan, phpunit (cobertura ≥ 80%, com ffmpeg real e o LocalStack do
 # fiapx-infra/local), build da imagem + Trivy e kustomize + kubeconform. O deploy na AWS fica fora deste
@@ -18,6 +18,7 @@ concurrency:
 
 jobs:
   testes:
+    name: Lint e testes (Pint, PHPStan e PHPUnit com ffmpeg)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     defaults:
@@ -25,37 +26,42 @@ jobs:
         working-directory: fiapx-video-processor
     steps:
       # Repositórios lado a lado, como na máquina de quem desenvolve (o compose monta ../fiapx-docs).
-      - uses: actions/checkout@v4
+      - name: Baixar o fiapx-video-processor
+        uses: actions/checkout@v4
         with: { path: fiapx-video-processor }
-      - uses: actions/checkout@v4
+      - name: Baixar o fiapx-docs (contratos)
+        uses: actions/checkout@v4
         with: { repository: hackathon-fiap-soat/fiapx-docs, path: fiapx-docs }
-      - uses: actions/checkout@v4
+      - name: Baixar o fiapx-infra (ambiente local)
+        uses: actions/checkout@v4
         with: { repository: hackathon-fiap-soat/fiapx-infra, path: fiapx-infra }
-      - name: Ambiente local (MySQL + LocalStack + Mailpit)
+      - name: Subir o ambiente local (MySQL, LocalStack e Mailpit)
         working-directory: fiapx-infra/local
         run: docker compose up -d --wait
-      - name: Imagem de desenvolvimento (com ffmpeg) e dependências
+      - name: Preparar o worker (imagem de desenvolvimento com ffmpeg e dependências)
         run: |
           cp .env.example .env
           docker compose build -q processor
           docker compose run --rm -q processor composer install --no-interaction --no-progress
-      - name: Pint e PHPStan
+      - name: Rodar o Pint e o PHPStan
         run: docker compose run --rm -q processor composer lint
-      - name: PHPUnit (unit, contrato e integração) com cobertura ≥ 80%
+      - name: Rodar o PHPUnit com cobertura ≥ 80% (unit, contrato e integração)
         run: docker compose run --rm -q processor composer test:coverage
-      - name: Logs do ambiente em caso de falha
+      - name: Mostrar os logs do ambiente local (só em falha)
         if: failure()
         working-directory: fiapx-infra/local
         run: docker compose logs --no-color
 
   imagem:
+    name: Imagem de produção e Trivy
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - name: Build da imagem de produção (linux/amd64)
+      - name: Baixar o código
+        uses: actions/checkout@v4
+      - name: Construir a imagem de produção (linux/amd64)
         run: docker build --platform linux/amd64 -t fiapx-video-processor:${{ github.sha }} .
-      - name: Trivy (falha em CRITICAL)
+      - name: Procurar vulnerabilidades CRITICAL na imagem (Trivy)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: fiapx-video-processor:${{ github.sha }}
@@ -64,10 +70,12 @@ jobs:
           ignore-unfixed: true
 
   manifests:
+    name: Manifests do Kubernetes (kustomize e kubeconform)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: kustomize build + kubeconform
+      - name: Baixar o código
+        uses: actions/checkout@v4
+      - name: Gerar e validar os manifests do overlay prod (kustomize e kubeconform)
         run: |
           cp k8s/overlays/prod/aws.env.example k8s/overlays/prod/aws.env
           docker run --rm -v "$PWD/k8s":/k8s registry.k8s.io/kustomize/kustomize:v5.6.0 build /k8s/overlays/prod > manifests.yaml

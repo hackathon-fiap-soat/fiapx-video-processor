@@ -1,4 +1,4 @@
-name: deploy
+name: Deploy · worker do processor no EKS (KEDA)
 
 # Deploy do worker (ADR-018): no merge na main e chamado pelo deploy-all do fiapx-infra.
 # Imagem no ECR → aws.env do SSM → manifests no EKS (Deployment + ScaledObject do KEDA).
@@ -22,20 +22,24 @@ env:
   SSM: /fiapx/prod
 
 jobs:
+  # Chamado pelo deploy-all, aparece como "4 · Processor (EKS + KEDA) / Implantar".
   deploy:
+    name: Implantar
     runs-on: ubuntu-latest
     environment: prod
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - name: Baixar o fiapx-video-processor
+        uses: actions/checkout@v4
         with: { repository: hackathon-fiap-soat/fiapx-video-processor }
-      - id: aws
+      - name: Autenticar na AWS Academy e garantir o bucket do state
+        id: aws
         uses: hackathon-fiap-soat/fiapx-infra/.github/actions/aws-lab@main
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-      - name: Ler o SSM (ambiente no ar?)
+      - name: Ler parâmetros do SSM e gerar o aws.env (ambiente no ar?)
         id: p
         run: |
           set -euo pipefail
@@ -54,17 +58,17 @@ jobs:
           ENV
           sed -i 's/^ *//' k8s/overlays/prod/aws.env
 
-      - name: Imagem (linux/amd64) no ECR
+      - name: Construir a imagem (linux/amd64, alvo prod) e enviar ao ECR
         run: |
           set -euo pipefail
           aws ecr get-login-password | docker login --username AWS --password-stdin "${{ steps.p.outputs.ecr }}"
           docker build --platform linux/amd64 --target prod -t "${{ steps.p.outputs.ecr }}:${{ github.sha }}" .
           docker push "${{ steps.p.outputs.ecr }}:${{ github.sha }}"
 
-      - name: Acesso ao cluster
+      - name: Configurar o acesso ao cluster EKS (kubeconfig)
         run: aws eks update-kubeconfig --name "${{ steps.p.outputs.cluster }}"
 
-      - name: Secret do app (New Relic)
+      - name: Criar o Secret do app no Kubernetes (New Relic)
         env:
           NR_KEY: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
         run: |
@@ -72,15 +76,17 @@ jobs:
           kubectl -n fiapx create secret generic fiapx-video-processor-app --dry-run=client -o yaml \
             --from-literal=NEW_RELIC_LICENSE_KEY="${NR_KEY}" | kubectl apply -f -
 
-      - name: Manifests e rollout
+      - name: Aplicar os manifests com a imagem nova (Deployment e ScaledObject do KEDA)
         run: |
           set -euo pipefail
           sed -i "s|newName: fiapx-video-processor|newName: ${{ steps.p.outputs.ecr }}|; s|newTag: latest|newTag: ${{ github.sha }}|" \
             k8s/overlays/prod/kustomization.yaml
           kubectl kustomize k8s/overlays/prod | kubectl apply -f -
-          kubectl -n fiapx rollout status deployment/video-processor --timeout=8m
 
-      - name: Resumo
+      - name: Aguardar o rollout do Deployment
+        run: kubectl -n fiapx rollout status deployment/video-processor --timeout=8m
+
+      - name: Escrever o resumo do deploy
         run: |
           {
             echo "### fiapx-video-processor implantado"
