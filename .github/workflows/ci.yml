@@ -52,7 +52,7 @@ jobs:
         # O PHPUnit roda no container, com o código em /var/www/html; o scanner roda no runner.
         run: sudo sed -i "s#/var/www/html#$GITHUB_WORKSPACE/fiapx-video-processor#g" coverage/clover.xml
       - name: Analisar no SonarCloud e esperar o Quality Gate
-        uses: SonarSource/sonarqube-scan-action@v8.4.1
+        uses: SonarSource/sonarqube-scan-action@e805d875275f728fac1885b413934be6d7c63f65 # v8.4.1
         with:
           projectBaseDir: fiapx-video-processor
           args: -Dsonar.qualitygate.wait=true
