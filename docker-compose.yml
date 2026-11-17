@@ -1,0 +1,35 @@
+# fiapx-video-processor no ambiente local. Pré-requisito: o ambiente do fiapx-infra de pé
+# (cd ../fiapx-infra/local && docker compose up -d --wait), porque este compose entra na rede dele.
+# Para o fluxo completo, suba também o fiapx-video-api (sem o profile simulador).
+#
+#   docker compose run --rm processor composer install     dependências
+#   docker compose up -d                                   worker (php artisan processor:consume)
+#   docker compose logs -f processor                       logs JSON do worker
+name: fiapx-video-processor
+
+services:
+  processor:
+    build: { context: ., target: dev }
+    image: fiapx-video-processor:dev
+    command: php artisan processor:consume
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Contratos (schemas e exemplos) para os testes de contrato.
+      FIAPX_DOCS_DIR: /fiapx-docs
+    volumes:
+      - .:/var/www/html
+      - ../fiapx-docs:/fiapx-docs:ro
+      # Diretório de trabalho dos vídeos (no Kubernetes, um emptyDir com sizeLimit).
+      - work:/work
+    # SIGTERM termina o vídeo atual antes de sair (o padrão do docker é 10 s).
+    stop_grace_period: 5m
+    networks: [fiapx]
+
+volumes:
+  work:
+
+networks:
+  fiapx:
+    name: fiapx_default
+    external: true
