@@ -4,7 +4,7 @@ Worker do FIAP X: consome `ProcessVideo` e `CleanupArtifacts`, extrai 1 frame po
 zip no S3 e responde à SAGA. Escalado pelo KEDA de 1 a 10 pods, um vídeo por pod.
 
 > Parte do **Hackathon FIAP X — Processador de Vídeos** (PÓS TECH SOAT, Fase 5).
-> Etapa 5: código, testes, imagem, manifests e CI prontos; o deploy na AWS é feito à parte. A documentação vem
+> Etapa 5: código, testes, imagem, manifests, CI e deploy na AWS (`deploy.yml`). A documentação vem
 > antes do código: a arquitetura, as decisões (ADRs/RFCs) e os contratos ficam em
 > [`fiapx-docs`](https://github.com/hackathon-fiap-soat/fiapx-docs) (spec §8.5,
 > [ADR-009](https://github.com/hackathon-fiap-soat/fiapx-docs/blob/main/04-adrs/ADR-009-worker-laravel-no-eks-escalado-por-keda.md)).
@@ -181,6 +181,19 @@ O bucket vem em cada comando (`payload.bucket`). O worker não usa banco: `DB_*`
 `.github/workflows/ci.yml` em todo PR e push na `main`: testes (com `fiapx-docs` e `fiapx-infra` lado a lado e o
 compose do ambiente local; pint, phpstan e phpunit com cobertura ≥ 80%), build da imagem `linux/amd64` com Trivy
 (falha em CRITICAL) e `kustomize build` + `kubeconform` (Kubernetes 1.33).
+
+## Deploy
+
+- `deploy.yml`: em todo merge na `main` (exceto mudanças só de documentação) e quando o `deploy-all` do
+  `fiapx-infra` chama (ADR-018), logo depois da infraestrutura, em paralelo com notification → auth →
+  video-api. Lê o SSM `/fiapx/prod/...` e gera `k8s/overlays/prod/aws.env` (com o ambiente destruído, falha
+  aqui), faz o build `linux/amd64` (`--target prod`) e o push no ECR `fiapx-video-processor` com a tag do
+  commit, cria o Secret `fiapx-video-processor-app` (`NEW_RELIC_LICENSE_KEY`) e aplica os manifests,
+  esperando o rollout.
+- `destroy.yml`: chamado pelo `destroy-all`; remove o `ScaledObject` e depois os demais recursos do worker.
+- Credenciais da AWS Academy nos Secrets `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN`
+  (ADR-019). Os pods usam a `LabRole` do nó (S3 get/put/delete/list e SQS).
+- O smoke do `deploy-all` cobre este worker: vídeo de 3 s → `COMPLETED` → zip com 3 frames.
 
 ## Links
 

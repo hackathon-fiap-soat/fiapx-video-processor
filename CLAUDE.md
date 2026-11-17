@@ -127,7 +127,7 @@ Como trabalhar aqui:
   ambiente compartilhado).
 - Teste ponta a ponta local: `fiapx-infra/local` + `fiapx-video-api` (`docker compose up -d`, sem o profile
   `simulador`) + `docker compose up -d` aqui; upload pelo POST pré-assinado e status até `COMPLETED`.
-- Sem `deploy.yml`/`destroy.yml` por enquanto (o deploy na AWS é feito à parte). O ECR já existe no `fiapx-infra`.
+- Sem `deploy.yml`/`destroy.yml` por enquanto (o deploy na AWS é o `deploy.yml`). O ECR já existe no `fiapx-infra`.
 
 **DoD da Etapa 5:** fluxo ponta a ponta local: upload no LocalStack → saga → processor → `COMPLETED` → download
 do zip com os frames. Cumprido em 2026-11-17: 78 testes (94,9% de linhas), vídeo de 3 s → `COMPLETED` com 3 PNGs

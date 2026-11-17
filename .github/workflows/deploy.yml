@@ -1,0 +1,89 @@
+name: deploy
+
+# Deploy do worker (ADR-018): no merge na main e chamado pelo deploy-all do fiapx-infra.
+# Imagem no ECR → aws.env do SSM → manifests no EKS (Deployment + ScaledObject do KEDA).
+# Credenciais da AWS Academy em Secrets (ADR-019). Com o ambiente destruído, falha ao ler o SSM.
+on:
+  push:
+    branches: [main]
+    # Mudança só de documentação ou de contexto do Claude não reimplanta o serviço.
+    paths-ignore: ["**.md", ".claude/**", "docs/**", "LICENSE"]
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-fiapx-video-processor
+  cancel-in-progress: false
+
+env:
+  SSM: /fiapx/prod
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: prod
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: hackathon-fiap-soat/fiapx-video-processor }
+      - id: aws
+        uses: hackathon-fiap-soat/fiapx-infra/.github/actions/aws-lab@main
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+      - name: Ler o SSM (ambiente no ar?)
+        id: p
+        run: |
+          set -euo pipefail
+          ler() { aws ssm get-parameter --name "$SSM/$1" --query Parameter.Value --output text 2>/dev/null || {
+            echo "::error::Falta $SSM/$1. Ambiente fora do ar: rode o deploy-all no fiapx-infra."; exit 1; }; }
+          {
+            echo "cluster=$(ler eks/cluster_name)"
+            echo "ecr=$(ler ecr/fiapx-video-processor/url)"
+          } >> "$GITHUB_OUTPUT"
+          cat > k8s/overlays/prod/aws.env <<ENV
+          FIAPX_ENV=prod
+          AWS_REGION=$(ler region)
+          SQS_PROCESSING_COMMANDS_URL=$(ler sqs/processing-commands/url)
+          SQS_SAGA_REPLIES_URL=$(ler sqs/saga-replies/url)
+          NEW_RELIC_ENABLED=${{ secrets.NEW_RELIC_LICENSE_KEY != '' && 'true' || 'false' }}
+          ENV
+          sed -i 's/^ *//' k8s/overlays/prod/aws.env
+
+      - name: Imagem (linux/amd64) no ECR
+        run: |
+          set -euo pipefail
+          aws ecr get-login-password | docker login --username AWS --password-stdin "${{ steps.p.outputs.ecr }}"
+          docker build --platform linux/amd64 --target prod -t "${{ steps.p.outputs.ecr }}:${{ github.sha }}" .
+          docker push "${{ steps.p.outputs.ecr }}:${{ github.sha }}"
+
+      - name: Acesso ao cluster
+        run: aws eks update-kubeconfig --name "${{ steps.p.outputs.cluster }}"
+
+      - name: Secret do app (New Relic)
+        env:
+          NR_KEY: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
+        run: |
+          kubectl create namespace fiapx --dry-run=client -o yaml | kubectl apply -f -
+          kubectl -n fiapx create secret generic fiapx-video-processor-app --dry-run=client -o yaml \
+            --from-literal=NEW_RELIC_LICENSE_KEY="${NR_KEY}" | kubectl apply -f -
+
+      - name: Manifests e rollout
+        run: |
+          set -euo pipefail
+          sed -i "s|newName: fiapx-video-processor|newName: ${{ steps.p.outputs.ecr }}|; s|newTag: latest|newTag: ${{ github.sha }}|" \
+            k8s/overlays/prod/kustomization.yaml
+          kubectl kustomize k8s/overlays/prod | kubectl apply -f -
+          kubectl -n fiapx rollout status deployment/video-processor --timeout=8m
+
+      - name: Resumo
+        run: |
+          {
+            echo "### fiapx-video-processor implantado"
+            echo "- Imagem: \`${{ steps.p.outputs.ecr }}:${{ github.sha }}\`"
+            echo "- Réplicas pelo KEDA (fila processing-commands): 1 a 10"
+          } >> "$GITHUB_STEP_SUMMARY"
