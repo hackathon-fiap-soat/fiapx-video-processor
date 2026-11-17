@@ -1,0 +1,57 @@
+# Worker: um vídeo por pod (ADR-009). A concorrência vem do número de réplicas, que o KEDA controla
+# (scaledobject.yaml); por isso o Deployment não fixa replicas.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: video-processor
+  labels: { app.kubernetes.io/name: video-processor, app.kubernetes.io/part-of: fiapx }
+spec:
+  selector:
+    matchLabels: { app.kubernetes.io/name: video-processor }
+  strategy:
+    # Na troca de versão, os pods antigos terminam o vídeo atual (SIGTERM) enquanto os novos já consomem.
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: video-processor, app.kubernetes.io/part-of: fiapx }
+    spec:
+      serviceAccountName: fiapx-video-processor
+      # Maior que o tempo máximo de um vídeo (ffmpeg até 1500 s + download e upload): o SIGTERM espera o
+      # vídeo atual terminar.
+      terminationGracePeriodSeconds: 1800
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: processor
+          image: fiapx-video-processor
+          command: ["php", "artisan", "processor:consume"]
+          envFrom:
+            - configMapRef: { name: fiapx-video-processor-base }
+            - configMapRef: { name: fiapx-video-processor-aws }
+            - secretRef: { name: fiapx-video-processor-app, optional: true }
+          env:
+            # worker_id do ProcessingStarted = nome do pod.
+            - name: FIAPX_WORKER_ID
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+          # Sem HTTP: o laço do consumidor e o heartbeat tocam um arquivo; o probe falha se ele parar.
+          livenessProbe:
+            exec: { command: ["php", "artisan", "processor:alive"] }
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
+          resources:
+            # O cluster tem 2 a 4 nós t3.large: requests modestos para caberem até 10 pods.
+            requests: { cpu: 500m, memory: 512Mi, ephemeral-storage: 1Gi }
+            limits: { cpu: 1500m, memory: 1536Mi, ephemeral-storage: 11Gi }
+          volumeMounts:
+            - { name: work, mountPath: /work }
+            - { name: tmp, mountPath: /tmp }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+      volumes:
+        # Vídeo, frames e zip (até 500 MB de vídeo; os frames PNG ocupam bem mais que o vídeo).
+        - name: work
+          emptyDir: { sizeLimit: 10Gi }
+        - name: tmp
+          emptyDir: { sizeLimit: 256Mi }

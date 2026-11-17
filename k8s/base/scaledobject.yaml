@@ -1,0 +1,26 @@
+# Escala de 1 a 10 pods pela profundidade da processing-commands: 1 mensagem por pod (queueLength "1",
+# ADR-009). O KEDA lê GetQueueAttributes com a identidade do próprio operador (identityOwner: keda), que na
+# AWS Academy é a LabRole dos nós (ADR-019).
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: video-processor-aws
+spec:
+  podIdentity: { provider: aws, identityOwner: keda }
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: video-processor
+spec:
+  scaleTargetRef: { name: video-processor }
+  minReplicaCount: 1
+  maxReplicaCount: 10
+  pollingInterval: 15
+  # Espera antes de reduzir: o pod que sai termina o vídeo atual (terminationGracePeriodSeconds).
+  cooldownPeriod: 300
+  triggers:
+    - type: aws-sqs-queue
+      authenticationRef: { name: video-processor-aws }
+      # As mensagens em processamento (invisíveis) também contam: cada uma ocupa um pod.
+      metadata: { queueURL: PROCESSING_COMMANDS_QUEUE_URL, queueLength: "1", awsRegion: AWS_REGION, scaleOnInFlight: "true" }

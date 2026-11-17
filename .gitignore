@@ -42,3 +42,7 @@ Homestead.json
 .phpactor.json
 auth.json
 
+/coverage/
+
+# Gerado no deploy a partir do SSM
+k8s/overlays/prod/aws.env

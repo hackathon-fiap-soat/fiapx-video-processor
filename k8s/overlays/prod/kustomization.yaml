@@ -1,0 +1,25 @@
+# Produção. O deploy (fora deste repositório por enquanto) gera aws.env a partir do SSM e troca a imagem
+# (newName/newTag) pela do ECR com o SHA do commit antes de aplicar.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+images:
+  - name: fiapx-video-processor
+    newName: fiapx-video-processor
+    newTag: latest
+configMapGenerator:
+  - name: fiapx-video-processor-aws
+    namespace: fiapx
+    envs: [aws.env]
+generatorOptions:
+  disableNameSuffixHash: false
+replacements:
+  - source: { kind: ConfigMap, name: fiapx-video-processor-aws, fieldPath: data.SQS_PROCESSING_COMMANDS_URL }
+    targets:
+      - select: { kind: ScaledObject, name: video-processor }
+        fieldPaths: [spec.triggers.0.metadata.queueURL]
+  - source: { kind: ConfigMap, name: fiapx-video-processor-aws, fieldPath: data.AWS_REGION }
+    targets:
+      - select: { kind: ScaledObject, name: video-processor }
+        fieldPaths: [spec.triggers.0.metadata.awsRegion]

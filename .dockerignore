@@ -1,0 +1,16 @@
+.git
+.github
+.claude
+.env
+vendor
+node_modules
+coverage
+storage/logs/*
+storage/framework/cache/data/*
+storage/framework/views/*
+bootstrap/cache/*.php
+k8s
+tests
+docs
+*.md
+!README.md

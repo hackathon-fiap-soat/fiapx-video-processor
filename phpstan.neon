@@ -1,0 +1,10 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    # Spec §11.2: phpstan nível 6 ou mais.
+    level: 6
+    paths:
+        - app
+        - tests/Support
+    treatPhpDocTypesAsCertain: false
